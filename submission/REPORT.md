@@ -25,9 +25,9 @@
 | PII redaction | `evidence/05-pii-redaction.png` |
 | Trace list | `evidence/06-trace-list.png` |
 | Trace waterfall | `evidence/07-trace-waterfall.png` |
-| Trace metadata | `evidence/08-trace-metadata.png` |
+| Trace metadata | `evidence/08a-trace-metadata.png`, `evidence/08b-trace-generation.png` |
 | Prompt versions | `evidence/09-prompt-versions.png` |
-| Prompt rollback | `evidence/10-prompt-rollback.png` |
+| Prompt rollback | `evidence/10a-prompt-promote.png`, `evidence/10b-prompt-rollback.png` |
 | Dashboard runtime | `evidence/11-dashboard-overview.png` |
 | Incident metric | `evidence/12-incident-metric.png` |
 | Incident log | `evidence/13-incident-log.png` |
@@ -123,39 +123,39 @@
 ## 7. Điều tra challenge
 
 - **Challenge ID:** `day13-k4-l3b-monitoring-llmops-v1`
-- **Khoảng thời gian điều tra:** `12:30:00 UTC` – `12:31:30 UTC` (ngày 2026-09-30)
+- **Khoảng thời gian điều tra:** `13:48:00 UTC` – `13:50:00 UTC` (ngày 2026-09-30)
 - **Triệu chứng từ metrics:**
-  - Panel `Latency & TTFT` trên dashboard ghi nhận độ trễ P95 tăng vọt từ baseline `683.3 ms` (steady-state ~152 ms) lên mức `2652.3 ms` (tăng gấp gần 4 lần so với baseline và gấp 17 lần so với steady-state).
+  - Panel `Latency & TTFT` trên dashboard ghi nhận độ trễ P95 tăng vọt từ baseline `152.0 ms` lên mức `2653.0 ms` (tăng gấp hơn 17 lần so với steady-state).
   - Ngược lại, metric `ttft_p95` vẫn giữ nguyên ở mức `50.0 ms`, `error_rate_pct` duy trì ở mức 0.0%, và `retrieval_success_rate_pct` đạt 100.0%.
   - Dấu hiệu này cho thấy hệ thống không bị lỗi crash hay timeout mà đang bị nghẽn độ trễ tại một khâu tiền xử lý trước khi token đầu tiên sẵn sàng, nhưng sau khi bắt đầu xử lý request.
 - **Log line và correlation ID liên quan:**
-  - Correlation ID đại diện: `req-1482a893` (các ID cùng đợt ảnh hưởng: `req-74a28ba4`, `req-9bda1e79`, `req-52cbb69d`, `req-401f118b`).
+  - Correlation ID đại diện: `req-b4cab690` (các ID cùng đợt ảnh hưởng: `req-cab3e8ea`, `req-db088ee6`, `req-798d9a95`, `req-f7df02ce`).
   - Bản ghi log mẫu (`response_sent`):
     ```json
     {
-      "ts": "2026-09-30T12:30:55.930554Z",
+      "ts": "2026-09-30T13:48:39.755786Z",
       "level": "info",
       "service": "api",
       "event": "response_sent",
-      "correlation_id": "req-1482a893",
-      "session_id": "k4-l3b-challenge-s01",
+      "correlation_id": "req-b4cab690",
+      "session_id": "k4-l3b-challenge-s05",
       "feature": "monitoring",
-      "latency_ms": 2652,
+      "latency_ms": 2653,
       "ttft_ms": 50,
       "tokens_in": 35,
-      "tokens_out": 128,
-      "cost_usd": 0.002025,
+      "tokens_out": 120,
+      "cost_usd": 0.001905,
       "quality_score": 0.8,
       "tool_name": "retrieval",
       "tool_success": true
     }
     ```
-  - Đối chiếu log: Tất cả các request có `latency_ms > 2000` đều có chung trường `feature = "monitoring"`. Latency thực tế đo tại server là ~2652 ms (không dùng thời gian phía client load test do ảnh hưởng của việc xếp hàng concurrency).
+  - Đối chiếu log: Tất cả các request có `latency_ms > 2000` đều có chung trường `feature = "monitoring"`. Latency thực tế đo tại server là ~2653 ms (không dùng thời gian phía client load test do ảnh hưởng của việc xếp hàng concurrency).
 - **Trace ID và span gây ảnh hưởng:**
-  - Trace ID đối ứng trên Langfuse: `a67b649f7394f8a4770a3be2b380e73f` (mang cùng `correlation_id = req-1482a893`).
+  - Trace ID đối ứng trên Langfuse: Trace của `correlation_id = req-b4cab690` (tìm thấy ngay trên đầu danh sách Traces lúc 13:48:39 UTC / 20:48 VN).
   - So sánh thời gian thực thi các span trong trace:
-    - Root span `lab-agent-run`: tổng thời gian `2.653s`.
-    - Child span `generation`: thời gian thực thi chỉ mất `0.151s` (hoàn toàn bình thường).
+    - Root span `lab-agent-run`: tổng thời gian `~2.65s`.
+    - Child span `generation`: thời gian thực thi chỉ mất `~0.15s` (hoàn toàn bình thường).
     - Child span `retrieval`: thời gian thực thi lên tới `2.501s` (chiếm hơn 94% tổng thời gian request).
 - **Root cause:**
   - Điểm nghẽn nằm ở thao tác truy xuất dữ liệu ngữ cảnh (span `retrieval`) trong cơ chế RAG đối với chủ đề `monitoring` (mô phỏng qua sự cố `rag_slow` gây sleep 2.5s trong `app/mock_rag.py`). Tầng LLM generation hoạt động hoàn toàn bình thường (`ttft_ms = 50ms`, `generation = 0.151s`). Cả ba lớp bằng chứng Metrics (P95 spike), Logs (latency_ms ~2652ms trên feature monitoring), và Traces (span retrieval kéo dài 2.501s) đồng nhất chỉ về một nguyên nhân duy nhất là tắc nghẽn tại Vector Retrieval / Knowledge Base.
@@ -197,10 +197,10 @@
 
 ## 9. Checklist trước khi nộp
 
-- [ ] Kết quả và evidence thuộc commit SHA cuối.
-- [ ] Tất cả ảnh/output mở được bằng đường dẫn tương đối.
-- [ ] Incident evidence nối đúng metric → log → trace.
-- [ ] Trace/prompt evidence thuộc project Langfuse cá nhân và ảnh không lộ key/secret.
-- [ ] Repository chạy lại được theo README.
-- [ ] Không có secret, API key, PII thô hoặc evidence của người khác/lớp khác.
-- [ ] URL repo và commit SHA cuối đã được nộp trên LMS/Codelabs.
+- [x] Kết quả và evidence thuộc commit SHA cuối.
+- [x] Tất cả ảnh/output mở được bằng đường dẫn tương đối.
+- [x] Incident evidence nối đúng metric → log → trace.
+- [x] Trace/prompt evidence thuộc project Langfuse cá nhân và ảnh không lộ key/secret.
+- [x] Repository chạy lại được theo README.
+- [x] Không có secret, API key, PII thô hoặc evidence của người khác/lớp khác.
+- [x] URL repo và commit SHA cuối đã được nộp trên LMS/Codelabs.
